@@ -62,7 +62,6 @@ public class Task {
         }
     }
 
-
     @SneakyThrows
     public static void syncNewHttpClient() {
         for (Photo photo : getPhotos()) {
@@ -118,6 +117,7 @@ public class Task {
             checkSaveMax(connection.getURL().toString(), connection.getContentLength()); //TODO: not correct!! Have to return 1st link
         }
     }
+
 
     private static List<Photo> getPhotos() {
         RestTemplate restTemplate = new RestTemplate();
