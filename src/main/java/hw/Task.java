@@ -55,9 +55,8 @@ public class Task {
     @SneakyThrows
     public static void syncNewHttpClient() {
         Long start = System.currentTimeMillis();
-        List<Photo> photos = getPhotos();
 
-        for (Photo photo : photos) {
+        for (Photo photo : getPhotos()) {
             HttpHeaders headers = HttpClient.newBuilder()
                     .followRedirects(HttpClient.Redirect.ALWAYS)
                     .build()
@@ -71,30 +70,17 @@ public class Task {
     @SneakyThrows
     public static void asyncNewHttpClient() {
         Long start = System.currentTimeMillis();
-        List<Photo> photos = getPhotos();
 
-        HttpClient httpClient = HttpClient.newBuilder()
-                .followRedirects(HttpClient.Redirect.ALWAYS)
-                .build();
-
-        List<CompletableFuture<HttpResponse<String>>> responsesCF = photos.stream()
+        List<HttpResponse<String>> responses = getPhotos().stream()
                 .map(Photo::getUrl)
-                .map(url -> httpClient
+                .map(url -> HttpClient.newBuilder()
+                        .followRedirects(HttpClient.Redirect.ALWAYS)
+                        .build()
                         .sendAsync(HttpRequest.newBuilder(URI.create(url)).build(),
                                 HttpResponse.BodyHandlers.ofString())
                         .thenApply(t -> t))
-                .toList();
-
-        List<HttpResponse<String>> responses = responsesCF.stream()
-                .map(cf -> {
-                    HttpResponse<String> response = null;
-                    try {
-                        response = cf.get();
-                    } catch (InterruptedException | ExecutionException e) {
-                        e.printStackTrace();
-                    }
-                    return response;
-                })
+                .toList().stream()
+                .map(Task::getStringHttpResponse)
                 .toList();
 
         for (HttpResponse<String> response : responses) {
@@ -108,26 +94,15 @@ public class Task {
     @SneakyThrows
     public static void asyncNewHttpClientInParallel() {
         Long start = System.currentTimeMillis();
-        List<Photo> photos = getPhotos();
 
-        List<HttpResponse<String>> responses = photos.stream().parallel()
-                .map(photo -> {
-                    HttpResponse<String> response = null;
-                    try {
-                        response = HttpClient.newBuilder()
-                                .followRedirects(HttpClient.Redirect.ALWAYS)
-                                .build()
-                                .send(HttpRequest.newBuilder(URI.create(photo.getUrl())).build(), HttpResponse.BodyHandlers.ofString());
-                    } catch (IOException | InterruptedException e) {
-                        e.printStackTrace();
-                    }
-                    return response;
-                }).toList();
+        getPhotos().stream().parallel()
+                .map(Photo::getUrl)
+                .map(Task::getResponse)
+                .map(httpResponse -> checkSaveMax(httpResponse.previousResponse().get().uri().toString(),
+                        httpResponse.headers().firstValue("content-length").orElseGet(() -> "0")))
+                .findAny()
+                .orElseGet(() -> null);
 
-        for (HttpResponse<String> response : responses) {
-            checkSaveMax(response.previousResponse().get().uri().toString(),
-                    response.headers().firstValue("content-length").orElseGet(() -> "0"));
-        }
         printResult("ASYNC HttpClient in parallel", start);
     }
 
@@ -137,25 +112,9 @@ public class Task {
         List<Photo> photos = getPhotos();
 
         List<HttpURLConnection> connections = photos.stream().parallel()
-                .map(photo -> {
-                    HttpURLConnection connection = null;
-                    try {
-                        connection = (HttpURLConnection) new URL(photo.getUrl()).openConnection();
-                        connection.connect();
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                    return connection;
-                }).map(connection -> {
-                    HttpURLConnection conn = null;
-                    try {
-                        conn = (HttpURLConnection) new URL(connection.getHeaderFields().get("Location").get(0)).openConnection();
-                        conn.connect();
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                    return conn;
-                }).toList();
+                .map(photo -> getHttpURLConnection(photo.getUrl()))
+                .map(connection -> getHttpURLConnection(connection.getHeaderFields().get("Location").get(0)))
+                .toList();
 
 
         for (HttpURLConnection connection : connections) {
@@ -165,22 +124,59 @@ public class Task {
         printResult("ASYNC HttpURLConnection", start);
     }
 
-
     private static List<Photo> getPhotos() {
         RestTemplate restTemplate = new RestTemplate();
         return restTemplate.getForObject(url, Photos.class).getPhotos();
     }
 
-    private static void checkSaveMax(String url, String length) {
-        int size = Integer.parseInt(length);
-        checkSaveMax(url, size);
+    private static HttpResponse<String> getStringHttpResponse(CompletableFuture<HttpResponse<String>> cf) {
+        HttpResponse<String> response = null;
+        try {
+            response = cf.get();
+        } catch (InterruptedException | ExecutionException e) {
+            e.printStackTrace();
+        }
+        return response;
     }
 
-    private static void checkSaveMax(String url, int length) {
+    private static HttpResponse<String> getResponse(String url) {
+        HttpResponse<String> response = null;
+        try {
+            response = HttpClient.newBuilder()
+                    .followRedirects(HttpClient.Redirect.ALWAYS)
+                    .build()
+                    .send(HttpRequest.newBuilder(URI.create(url)).build(),
+                            HttpResponse.BodyHandlers.ofString());
+        } catch (IOException | InterruptedException e) {
+            e.printStackTrace();
+        }
+        return response;
+    }
+
+    private static HttpURLConnection getHttpURLConnection(String url) {
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection) new URL(url).openConnection();
+            connection.connect();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return connection;
+    }
+
+    private static boolean checkSaveMax(String url, String length) {
+        int size = Integer.parseInt(length);
+        checkSaveMax(url, size);
+        return false;
+    }
+
+    private static boolean checkSaveMax(String url, int length) {
         if (length > maxSize) {
             maxSize = length;
             urlWithMaxContentSize = url;
+            return true;
         }
+        return false;
     }
 
     private static void printResult(String methodName, Long start) {
