@@ -19,24 +19,38 @@ public class Task {
     private static final String url = "https://api.nasa.gov/mars-photos/api/v1/rovers/curiosity/photos?sol=15&api_key=U2oXIN2fuIFK0aiXAoHXPYLvXihE6hY3CkSkvPV7";
     private static String urlWithMaxContentSize = "";
     private static Integer maxSize = 0;
+    private static Long start = 0l;
 
     public static void main(String[] args) {
+        start = System.currentTimeMillis();
         syncOldHttpURLConnection();
+        printResult("SYNC HttpURLConnection", start);
         resetData();
+
+        start = System.currentTimeMillis();
         syncNewHttpClient();
+        printResult("SYNC HttpClient", start);
         resetData();
+
+        start = System.currentTimeMillis();
         asyncNewHttpClient();
+        printResult("ASYNC HttpClient", start);
         resetData();
+
+        start = System.currentTimeMillis();
         asyncNewHttpClientInParallel();
+        printResult("ASYNC HttpClient in parallel", start);
         resetData();
+
+        start = System.currentTimeMillis();
         asyncOldHttpURLConnection();
+        printResult("ASYNC HttpURLConnection", start);
         resetData();
     }
 
 
     @SneakyThrows
     public static void syncOldHttpURLConnection() {
-        Long start = System.currentTimeMillis();
         List<Photo> photos = getPhotos();
 
         for (Photo photo : photos) {
@@ -48,14 +62,11 @@ public class Task {
 
             checkSaveMax(photo.getUrl(), connection2.getContentLength());
         }
-        printResult("SYNC HttpURLConnection", start);
     }
 
 
     @SneakyThrows
     public static void syncNewHttpClient() {
-        Long start = System.currentTimeMillis();
-
         for (Photo photo : getPhotos()) {
             HttpHeaders headers = HttpClient.newBuilder()
                     .followRedirects(HttpClient.Redirect.ALWAYS)
@@ -64,13 +75,10 @@ public class Task {
                     .headers();
             checkSaveMax(photo.getUrl(), headers.firstValue("content-length").orElseGet(() -> "0"));
         }
-        printResult("SYNC HttpClient", start);
     }
 
     @SneakyThrows
     public static void asyncNewHttpClient() {
-        Long start = System.currentTimeMillis();
-
         List<HttpResponse<String>> responses = getPhotos().stream()
                 .map(Photo::getUrl)
                 .map(url -> HttpClient.newBuilder()
@@ -87,14 +95,10 @@ public class Task {
             checkSaveMax(response.previousResponse().get().uri().toString(),
                     response.headers().firstValue("content-length").orElseGet(() -> "0"));
         }
-
-        printResult("ASYNC HttpClient", start);
     }
 
     @SneakyThrows
     public static void asyncNewHttpClientInParallel() {
-        Long start = System.currentTimeMillis();
-
         getPhotos().stream().parallel()
                 .map(Photo::getUrl)
                 .map(Task::getResponse)
@@ -102,13 +106,10 @@ public class Task {
                         httpResponse.headers().firstValue("content-length").orElseGet(() -> "0")))
                 .findAny()
                 .orElseGet(() -> null);
-
-        printResult("ASYNC HttpClient in parallel", start);
     }
 
     @SneakyThrows
     public static void asyncOldHttpURLConnection() {
-        Long start = System.currentTimeMillis();
         List<Photo> photos = getPhotos();
 
         List<HttpURLConnection> connections = photos.stream().parallel()
@@ -120,8 +121,6 @@ public class Task {
         for (HttpURLConnection connection : connections) {
             checkSaveMax(connection.getURL().toString(), connection.getContentLength()); //TODO: not correct!! Have to return 1st link
         }
-
-        printResult("ASYNC HttpURLConnection", start);
     }
 
     private static List<Photo> getPhotos() {
