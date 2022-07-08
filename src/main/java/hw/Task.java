@@ -1,6 +1,7 @@
 package hw;
 
 import lombok.SneakyThrows;
+import org.apache.commons.lang3.tuple.Pair;
 import org.springframework.web.client.RestTemplate;
 
 import java.io.IOException;
@@ -11,9 +12,13 @@ import java.net.http.HttpClient;
 import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.Comparator;
 import java.util.List;
+import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+
+import static java.net.http.HttpRequest.BodyPublishers.noBody;
 
 public class Task {
     private static final String url = "https://api.nasa.gov/mars-photos/api/v1/rovers/curiosity/photos?sol=15&api_key=U2oXIN2fuIFK0aiXAoHXPYLvXihE6hY3CkSkvPV7";
@@ -22,6 +27,11 @@ public class Task {
     private static Long start = 0l;
 
     public static void main(String[] args) {
+        start = System.currentTimeMillis();
+        System.out.println(asyncMin());
+        printResult("ASYNC MIN", start);
+        resetData();
+
         start = System.currentTimeMillis();
         syncOldHttpURLConnection();
         printResult("SYNC HttpURLConnection", start);
@@ -92,6 +102,28 @@ public class Task {
             checkSaveMax(response.previousResponse().get().uri().toString(),
                     response.headers().firstValue("content-length").orElseGet(() -> "0"));
         }
+    }
+
+    public static Pair<String, Long> asyncMin(){
+        return getPhotos().stream()
+                .map(Photo::getUrl)
+                .map(url -> Pair.of(url, HttpClient.newBuilder()
+                        .followRedirects(HttpClient.Redirect.ALWAYS)
+                        .build()
+                        .sendAsync(HttpRequest.newBuilder(URI.create(url))
+                                        .method("HEAD", noBody())
+                                        .build(),
+                                HttpResponse.BodyHandlers.discarding())
+                .thenApply(HttpResponse::headers)
+                .thenApply(httpHeaders -> httpHeaders.firstValueAsLong("content-length"))))
+                .toList().stream()
+                .map(pair -> Pair.of(pair.getLeft(), getLong(pair.getRight())))
+                .min(Comparator.comparing(Pair::getRight)).orElseThrow();
+    }
+
+    @SneakyThrows
+    private static long getLong(CompletableFuture<OptionalLong> completableFuture) {
+        return completableFuture.get().orElse(0);
     }
 
     @SneakyThrows
